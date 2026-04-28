@@ -983,3 +983,14 @@ class TestRunsProviderAuthFailure:
                 assert status["status"] == "failed"
                 assert status["error"] == "⚠️ Provider authentication failed: No credentials found for provider 'nous'"
                 assert status["last_event"] == "run.failed"
+
+
+def test_run_event_queue_is_bounded_and_drops_oldest():
+    adapter = _make_adapter()
+    q = asyncio.Queue(maxsize=1)
+
+    adapter._put_run_event_nowait(q, {"event": "old"})
+    adapter._put_run_event_nowait(q, {"event": "new"})
+
+    assert q.qsize() == 1
+    assert q.get_nowait()["event"] == "new"

@@ -5917,6 +5917,7 @@ class APIServerAdapter(BasePlatformAdapter):
 
     _RUN_STREAM_TTL = 300  # seconds before orphaned runs are swept
     _RUN_STATUS_TTL = 3600  # seconds to retain terminal run status for polling
+    _RUN_STREAM_QUEUE_MAX = 1000  # Bound SSE buffering for slow or absent consumers.
 
     def _set_run_status(self, run_id: str, status: str, **fields: Any) -> Dict[str, Any]:
         """Update pollable run status without exposing private agent objects."""
@@ -5933,6 +5934,34 @@ class APIServerAdapter(BasePlatformAdapter):
         self._run_statuses[run_id] = current
         return current
 
+    @staticmethod
+    def _put_run_event_nowait(
+        q: "asyncio.Queue[Optional[Dict]]", event: Optional[Dict]
+    ) -> None:
+        """Enqueue on a bounded run queue, evicting the oldest event if full."""
+        try:
+            q.put_nowait(event)
+            return
+        except asyncio.QueueFull:
+            pass
+        try:
+            q.get_nowait()
+        except asyncio.QueueEmpty:
+            pass
+        try:
+            q.put_nowait(event)
+        except asyncio.QueueFull:
+            pass
+
+    def _schedule_run_event(
+        self,
+        loop: "asyncio.AbstractEventLoop",
+        q: "asyncio.Queue[Optional[Dict]]",
+        event: Optional[Dict],
+    ) -> None:
+        """Schedule a bounded queue write from an agent worker thread."""
+        loop.call_soon_threadsafe(self._put_run_event_nowait, q, event)
+
     def _make_run_event_callback(self, run_id: str, loop: "asyncio.AbstractEventLoop"):
         """Return a tool_progress_callback that pushes structured events to the run's SSE queue."""
         def _push(event: Dict[str, Any]) -> None:
@@ -5945,7 +5974,7 @@ class APIServerAdapter(BasePlatformAdapter):
             if q is None:
                 return
             try:
-                loop.call_soon_threadsafe(q.put_nowait, event)
+                self._schedule_run_event(loop, q, event)
             except Exception:
                 pass
 
@@ -6076,7 +6105,9 @@ class APIServerAdapter(BasePlatformAdapter):
         approval_session_key = run_id
         ephemeral_system_prompt = instructions
         loop = asyncio.get_running_loop()
-        q: "asyncio.Queue[Optional[Dict]]" = asyncio.Queue()
+        q: "asyncio.Queue[Optional[Dict]]" = asyncio.Queue(
+            maxsize=self._RUN_STREAM_QUEUE_MAX
+        )
         created_at = time.time()
         self._run_streams[run_id] = q
         self._run_streams_created[run_id] = created_at
@@ -6087,7 +6118,7 @@ class APIServerAdapter(BasePlatformAdapter):
         def _put_event_if_active(event: Optional[Dict]) -> None:
             """Enqueue only while this run still owns live transport state."""
             if self._run_streams.get(run_id) is q:
-                q.put_nowait(event)
+                self._put_run_event_nowait(q, event)
 
         # Also wire stream_delta_callback so message.delta events flow through.
         def _text_cb(delta: Optional[str]) -> None:
@@ -6171,7 +6202,7 @@ class APIServerAdapter(BasePlatformAdapter):
                         last_event="approval.request",
                     )
                     try:
-                        loop.call_soon_threadsafe(q.put_nowait, event)
+                        loop.call_soon_threadsafe(_put_event_if_active, event)
                     except Exception:
                         pass
 
