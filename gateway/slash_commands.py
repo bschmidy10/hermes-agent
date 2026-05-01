@@ -532,6 +532,89 @@ class GatewaySlashCommandsMixin:
             output = output[:3800] + "\n" + t("gateway.kanban.truncated_suffix")
         return output or t("gateway.kanban.no_output")
 
+    async def _handle_capy_command(self, event: MessageEvent) -> str:
+        """Handle /capy — show a read-only capability dashboard."""
+        from gateway.capy_status import collect_capabilities, render_capabilities
+        from gateway.workspace_state import default_workspace
+
+        session_entry = await self.async_session_store.get_or_create_session(
+            event.source
+        )
+        workspace = (
+            getattr(session_entry, "current_workspace", "") or default_workspace()
+        )
+        data = collect_capabilities(
+            session_id=session_entry.session_id,
+            workspace=workspace,
+        )
+        return render_capabilities(data)
+
+    async def _handle_workspace_command(self, event: MessageEvent) -> str:
+        """Handle /workspace — show or set this session's working directory."""
+        from gateway.workspace_state import (
+            default_workspace,
+            format_workspace_list,
+            normalize_workspace_path,
+            read_webui_workspaces,
+        )
+
+        session_entry = await self.async_session_store.get_or_create_session(
+            event.source
+        )
+        args = event.get_command_args().strip()
+        current = (
+            getattr(session_entry, "current_workspace", "") or default_workspace()
+        )
+
+        if not args:
+            workspaces = read_webui_workspaces()
+            lines = [
+                "🗂️ **Workspace**",
+                "",
+                f"Current: `{current}`",
+                "",
+                "Use `/workspace /absolute/path` to set this session's workspace,",
+                "`/workspace list` to show WebUI workspaces, or `/workspace clear` to use the default.",
+            ]
+            if workspaces:
+                lines.extend(
+                    ["", "Known WebUI workspaces:", format_workspace_list(workspaces)]
+                )
+            return "\n".join(lines)
+
+        lowered = args.lower()
+        if lowered in {"list", "ls"}:
+            workspaces = read_webui_workspaces()
+            if not workspaces:
+                return (
+                    "No WebUI workspaces found. Set one with "
+                    "`/workspace /absolute/path`."
+                )
+            return "Known WebUI workspaces:\n" + format_workspace_list(workspaces)
+
+        if lowered in {"clear", "default", "reset", "off"}:
+            await self.async_session_store.set_current_workspace(
+                session_entry.session_key, ""
+            )
+            return (
+                "Workspace cleared. This session will use the default: "
+                f"`{default_workspace()}`"
+            )
+
+        workspace, err = normalize_workspace_path(args)
+        if err:
+            return f"Could not set workspace: {err}"
+        if not workspace:
+            return "Could not set workspace: unknown error."
+        await self.async_session_store.set_current_workspace(
+            session_entry.session_key, workspace
+        )
+        return (
+            f"Workspace set for this session: `{workspace}`\n"
+            "Relative terminal/file/code/delegation tool paths will resolve "
+            "from this directory."
+        )
+
     async def _handle_status_command(self, event: MessageEvent) -> str:
         """Handle /status command."""
         from gateway.run import _AGENT_PENDING_SENTINEL, _load_gateway_config, _resolve_gateway_model
@@ -682,6 +765,16 @@ class GatewaySlashCommandsMixin:
             t("gateway.status.tokens", tokens=f"{db_total_tokens:,}"),
             t("gateway.status.agent_running", state=t("gateway.status.state_yes") if is_running else t("gateway.status.state_no")),
         ])
+        workspace = getattr(session_entry, "current_workspace", "") or ""
+        if not workspace:
+            try:
+                from gateway.workspace_state import default_workspace
+
+                workspace = default_workspace()
+            except Exception:
+                workspace = ""
+        if workspace:
+            lines.append(f"**Workspace:** `{workspace}`")
         if queue_depth:
             lines.append(t("gateway.status.queued", count=queue_depth))
         if source.platform == Platform.MATRIX:
