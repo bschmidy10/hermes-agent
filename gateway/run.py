@@ -11729,6 +11729,12 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
 
             return format_status_text()
 
+        if canonical == "capy":
+            return await self._handle_capy_command(event)
+
+        if canonical == "workspace":
+            return await self._handle_workspace_command(event)
+
         if canonical == "agents":
             return await self._handle_agents_command(event)
 
@@ -12668,7 +12674,16 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                 from agent.context_references import preprocess_context_references_async
                 from agent.model_metadata import get_model_context_length_async
 
-                _msg_cwd = os.environ.get("TERMINAL_CWD", os.path.expanduser("~"))
+                try:
+                    from gateway.session_context import get_session_env
+
+                    _msg_cwd = get_session_env(
+                        "TERMINAL_CWD", os.path.expanduser("~")
+                    )
+                except Exception:
+                    _msg_cwd = os.environ.get(
+                        "TERMINAL_CWD", os.path.expanduser("~")
+                    )
                 _msg_config_ctx = None
                 _msg_cfg = None
                 _msg_model_cfg = {}
@@ -14186,7 +14201,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                     model=agent_result.get("model"),
                     context_tokens=agent_result.get("last_prompt_tokens", 0) or 0,
                     context_length=agent_result.get("context_length") or None,
-                    cwd=os.environ.get("TERMINAL_CWD", ""),
+                    cwd=None,
                 )
             except Exception as _footer_err:
                 logger.debug("runtime_footer build failed: %s", _footer_err)
@@ -17457,6 +17472,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
             message_id=str(context.source.message_id) if context.source.message_id else "",
             profile=getattr(context.source, "profile", "") or "",
             async_delivery=_async_delivery,
+            terminal_cwd=getattr(context, "current_workspace", "") or "",
         )
 
     def _clear_session_env(self, tokens: list) -> None:
