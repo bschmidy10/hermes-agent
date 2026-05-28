@@ -1016,7 +1016,33 @@ def _consume_codex_event_stream(
     terminal_error: Any = None
     saw_terminal = False
 
-    for event in event_iter:
+    def _events_with_null_terminal_recovery():
+        """Yield SDK events, tolerating a malformed terminal frame after data."""
+        try:
+            yield from event_iter
+        except TypeError as exc:
+            # Some OpenAI SDK versions reconstruct the typed terminal response
+            # while advancing the iterator. A Codex response whose terminal
+            # ``output`` is null can therefore raise after useful
+            # response.output_item.done/text-delta events were already yielded.
+            # Recover only for that narrow shape and only after usable content;
+            # otherwise preserve the original exception.
+            if (
+                "NoneType" in str(exc)
+                and "not iterable" in str(exc)
+                and (collected_output_items or collected_text_deltas)
+            ):
+                logger.info(
+                    "Codex stream iterator hit null terminal output after "
+                    "collecting %d output item(s) and %d text delta(s); "
+                    "returning collected content.",
+                    len(collected_output_items),
+                    len(collected_text_deltas),
+                )
+                return
+            raise
+
+    for event in _events_with_null_terminal_recovery():
         if on_event is not None:
             try:
                 on_event(event)
