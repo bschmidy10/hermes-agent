@@ -1103,9 +1103,13 @@ def build_turn_context(
                 else _gateway_notes
             )
 
-    # Per-turn file-mutation verifier state.
+    # Per-turn file-mutation verifier state. Keyed by resolved path; each
+    # failed write_file/patch records an error preview. A later success clears
+    # the failure, while successful earlier mutations stay recorded so a later
+    # failed follow-up can be described without claiming the file was untouched.
     agent._turn_failed_file_mutations = {}
     agent._turn_file_mutation_paths = set()
+    agent._turn_landed_file_mutations = set()
     agent._verification_stop_nudges = 0
     agent._pre_verify_nudges = 0
 
