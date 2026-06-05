@@ -102,6 +102,14 @@ def test_fail_closed_probe_classifies_raw_builtin_as_unguarded():
     assert not isinstance(os.kill, types.BuiltinFunctionType)
 
 
+def _install_fake_systemctl(tmp_path, monkeypatch):
+    """Put a harmless systemctl shim on PATH for pass-through guard tests."""
+    shim = tmp_path / "systemctl"
+    shim.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    shim.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ.get('PATH', '')}")
+
+
 # ──────────────────── kill primitives ─────────────────────────
 
 
