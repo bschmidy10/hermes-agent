@@ -2361,6 +2361,31 @@ class SessionDB:
                 self._warn_fts5_unavailable(exc)
             return False
 
+    def _ensure_write_connection_locked(self) -> None:
+        """Reopen a writable connection while ``self._lock`` is held.
+
+        Gateway and cron teardown can close the shared SessionDB before a late
+        transcript flush performs its final write. Reopen lazily rather than
+        failing with ``None.execute`` and losing those rows.
+        """
+        if self._conn is not None:
+            return
+        if self.read_only:
+            raise sqlite3.ProgrammingError("read-only SessionDB connection is closed")
+
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._conn = sqlite3.connect(
+            str(self.db_path),
+            check_same_thread=False,
+            timeout=1.0,
+            isolation_level=None,
+        )
+        self._conn.row_factory = sqlite3.Row
+        apply_wal_with_fallback(self._conn, db_label="state.db")
+        self._conn.execute("PRAGMA foreign_keys=ON")
+        self._fts_cjk_loaded = load_fts5_cjk_extension(self._conn)
+        self._init_schema()
+
     def _execute_write(
         self,
         fn: Callable[[sqlite3.Connection], T],
@@ -2383,6 +2408,7 @@ class SessionDB:
         for attempt in range(self._WRITE_MAX_RETRIES):
             try:
                 with self._lock:
+                    self._ensure_write_connection_locked()
                     self._conn.execute("BEGIN IMMEDIATE")
                     try:
                         result = fn(self._conn)
