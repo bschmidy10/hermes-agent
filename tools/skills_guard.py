@@ -692,7 +692,15 @@ def _content_digest(skill_path: Path) -> str:
     """Canonical SHA-256 over relative paths and exact file bytes."""
     h = hashlib.sha256()
     if skill_path.is_dir():
-        for file_path in sorted(skill_path.rglob("*")):
+        # Sort by the same relative POSIX strings used by
+        # bundle_content_hash(). Path-object ordering compares components,
+        # placing ``styles/child.md`` before sibling ``styles.md`` and yielding
+        # a different digest for byte-identical bundles.
+        paths = sorted(
+            skill_path.rglob("*"),
+            key=lambda path: path.relative_to(skill_path).as_posix(),
+        )
+        for file_path in paths:
             if file_path.is_file():
                 rel = file_path.relative_to(skill_path).as_posix()
                 h.update(rel.encode("utf-8") + b"\x00")
