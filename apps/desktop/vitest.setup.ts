@@ -1,4 +1,6 @@
-import { configure } from '@testing-library/react'
+import { cleanup, configure } from '@testing-library/react'
+import cssEscape from 'css.escape'
+import { afterEach } from 'vitest'
 
 // React 19 + Testing Library 16: opt into the act environment so render(),
 // fireEvent(), and findBy* queries automatically flush state updates without
@@ -10,3 +12,19 @@ import { configure } from '@testing-library/react'
 // CPU contention in CI. Success still resolves the instant the node appears;
 // the wider deadline only absorbs a starved runner, killing timing flakes.
 configure({ asyncUtilTimeout: 5000 })
+
+if (typeof globalThis.CSS === 'undefined') {
+  Object.defineProperty(globalThis, 'CSS', {
+    configurable: true,
+    value: {}
+  })
+}
+
+if (typeof globalThis.CSS.escape !== 'function') {
+  Object.defineProperty(globalThis.CSS, 'escape', {
+    configurable: true,
+    value: cssEscape
+  })
+}
+
+afterEach(cleanup)
