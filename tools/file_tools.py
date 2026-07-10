@@ -240,14 +240,27 @@ def _sentinel_free_abs_cwd(raw: str | None) -> str | None:
 
 
 def _configured_terminal_cwd() -> str | None:
-    """Return ``$TERMINAL_CWD`` only when it names a real directory anchor.
+    """Return the active session's absolute, sentinel-free workspace anchor."""
+    try:
+        from gateway.session_context import get_session_env
 
-    Sentinel values (see ``_TERMINAL_CWD_SENTINELS``) and relative paths are
-    rejected — a relative anchor is meaningless without knowing which cwd it is
-    relative to, which is exactly the ambiguity that misroutes worktree edits.
-    Only an absolute, sentinel-free value is honored.
-    """
-    return _sentinel_free_abs_cwd(os.environ.get("TERMINAL_CWD"))
+        raw = get_session_env("TERMINAL_CWD", "") or os.environ.get("TERMINAL_CWD")
+    except Exception:
+        raw = os.environ.get("TERMINAL_CWD")
+    return _sentinel_free_abs_cwd(raw)
+
+
+def _effective_workspace_task_id(task_id: str = "default") -> str:
+    """Map a collapsed default task to the active gateway session when bound."""
+    if str(task_id or "default") not in {"", "default"}:
+        return str(task_id)
+    try:
+        from gateway.session_context import get_session_env
+
+        session_key = get_session_env("HERMES_SESSION_KEY", "").strip()
+    except Exception:
+        session_key = ""
+    return session_key or "default"
 
 
 def _registered_task_cwd_override(task_id: str = "default") -> str | None:
@@ -289,15 +302,16 @@ def _authoritative_workspace_root(task_id: str = "default") -> str | None:
     Returns ``None`` only when there is genuinely no reliable anchor, in which
     case callers fall back to the process cwd.
     """
+    effective_task_id = _effective_workspace_task_id(task_id)
     try:
         from tools.terminal_tool import get_session_cwd
 
-        recorded = get_session_cwd(task_id)
+        recorded = get_session_cwd(effective_task_id)
     except Exception:
         recorded = None
     if recorded:
         return recorded
-    registered = _registered_task_cwd_override(task_id)
+    registered = _registered_task_cwd_override(effective_task_id)
     if registered:
         return registered
     return _configured_terminal_cwd()
@@ -605,6 +619,11 @@ def _check_sensitive_path(filepath: str, task_id: str = "default") -> str | None
         "Use the terminal tool with sudo if you need to modify system files."
     )
     for prefix in _SENSITIVE_PATH_PREFIXES:
+        # macOS user temp directories live under /private/var/folders. They are
+        # per-user, permission-scoped work areas rather than system state, so
+        # relative workspace writes resolved there must remain available.
+        if prefix == "/private/var/" and resolved.startswith("/private/var/folders/"):
+            continue
         if resolved.startswith(prefix) or normalized.startswith(prefix):
             return _err
     if resolved in _SENSITIVE_EXACT_PATHS or normalized in _SENSITIVE_EXACT_PATHS:

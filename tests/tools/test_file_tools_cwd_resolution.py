@@ -423,6 +423,26 @@ class _FakeEnv:
         self.cwd = cwd
 
 
+def test_default_task_ignores_foreign_owned_live_cwd_for_session_workspace(
+    _two_worktree_sessions,
+):
+    """Collapsed ``default`` must not inherit another gateway session's cwd."""
+    from gateway.session_context import clear_session_vars, set_session_vars
+
+    wt_a, wt_b, _main = _two_worktree_sessions
+    # Simulate stale shared/default state left by session B. A bound gateway
+    # session must resolve through its own raw session key instead.
+    terminal_tool.record_session_cwd("default", str(wt_b))
+    tokens = set_session_vars(session_key="sess-a", terminal_cwd=str(wt_a))
+    try:
+        resolved = ft._resolve_path_for_task("target.py", task_id="default")
+    finally:
+        clear_session_vars(tokens)
+
+    assert resolved == (wt_a / "target.py")
+    assert not str(resolved).startswith(str(wt_b))
+
+
 def test_resolution_routes_to_resolving_sessions_worktree(_two_worktree_sessions):
     """The wrong-worktree fix: A resolves into wt_a, not the shared env's wt_b."""
     wt_a, wt_b, _main = _two_worktree_sessions
