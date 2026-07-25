@@ -2024,9 +2024,16 @@ def _is_verification_artifact_cleanup(command: str) -> bool:
         return False
 
     operand = argv[2]
-    temp_dir = os.path.realpath(tempfile.gettempdir())
+    raw_temp_dir = tempfile.gettempdir()
+    temp_dir = os.path.realpath(raw_temp_dir)
     basename = os.path.basename(operand)
-    if operand != os.path.join(temp_dir, basename):
+    allowed_operands = {os.path.join(temp_dir, basename)}
+    # macOS exposes its canonical /private/tmp directory through the stable
+    # /tmp compatibility symlink. Permit that one platform alias without
+    # accepting arbitrary symlinked temp roots or non-canonical operands.
+    if raw_temp_dir == "/tmp" and temp_dir == "/private/tmp":
+        allowed_operands.add(os.path.join(raw_temp_dir, basename))
+    if operand not in allowed_operands:
         return False
 
     target = os.path.realpath(operand)
@@ -3380,15 +3387,13 @@ def check_all_command_guards(command: str, env_type: str,
                        deny_pattern, command[:200])
         return _user_deny_block_result(deny_pattern)
 
-    host_bound_docker = env_type == "docker" and has_host_access
-
     # --yolo or approvals.mode=off: bypass all approval prompts.
     # Gateway /yolo is session-scoped; CLI --yolo remains process-scoped.
     approval_mode = _get_approval_mode()
     if _YOLO_MODE_FROZEN or is_current_session_yolo_enabled() or approval_mode == "off":
         return {"approved": True, "message": None}
 
-    if not host_bound_docker and _command_matches_permanent_allowlist(command):
+    if _command_matches_permanent_allowlist(command):
         return {"approved": True, "message": None}
 
     is_cli = _is_interactive_cli()
@@ -3530,7 +3535,7 @@ def check_all_command_guards(command: str, env_type: str,
             warnings.append((tirith_key, tirith_desc, True))
 
     if is_dangerous:
-        if host_bound_docker or not is_approved(session_key, pattern_key):
+        if not is_approved(session_key, pattern_key):
             warnings.append((pattern_key, description, False))
 
     # Nothing to warn about

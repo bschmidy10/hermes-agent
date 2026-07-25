@@ -19,6 +19,8 @@ async def test_restart_command_while_busy_requests_drain_without_interrupt(monke
     # Ensure neither systemd nor launchd service markers are active; terminal
     # commands spawned by a live macOS gateway inherit its XPC service label.
     monkeypatch.delenv("INVOCATION_ID", raising=False)
+    monkeypatch.delenv("HERMES_S6_SUPERVISED_CHILD", raising=False)
+    monkeypatch.delenv("HERMES_GATEWAY_EXTERNAL_SUPERVISOR", raising=False)
     monkeypatch.setenv("XPC_SERVICE_NAME", "0")
     runner, _adapter = make_restart_runner()
     runner.request_restart = MagicMock(return_value=True)
