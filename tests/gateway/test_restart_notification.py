@@ -132,6 +132,8 @@ async def test_restart_command_uses_detached_without_systemd(tmp_path, monkeypat
     """Without a service manager, /restart uses the detached subprocess approach."""
     monkeypatch.setattr(gateway_run, "_hermes_home", tmp_path)
     monkeypatch.delenv("INVOCATION_ID", raising=False)
+    monkeypatch.delenv("HERMES_S6_SUPERVISED_CHILD", raising=False)
+    monkeypatch.delenv("HERMES_GATEWAY_EXTERNAL_SUPERVISOR", raising=False)
     # Terminal commands launched by a live launchd-supervised gateway inherit
     # its XPC service label.  Pin the interactive-shell sentinel explicitly so
     # this test exercises the unsupervised branch on macOS as intended.
