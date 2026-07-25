@@ -1,6 +1,5 @@
-import { cleanup, configure } from '@testing-library/react'
+import { configure } from '@testing-library/react'
 import cssEscape from 'css.escape'
-import { afterEach } from 'vitest'
 
 // React 19 + Testing Library 16: opt into the act environment so render(),
 // fireEvent(), and findBy* queries automatically flush state updates without
@@ -26,5 +25,3 @@ if (typeof globalThis.CSS.escape !== 'function') {
     value: cssEscape
   })
 }
-
-afterEach(cleanup)
