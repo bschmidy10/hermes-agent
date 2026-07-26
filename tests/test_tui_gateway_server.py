@@ -2168,6 +2168,12 @@ def test_session_resume_profile_uses_profile_db_cwd(monkeypatch, tmp_path):
     launch_cwd.mkdir()
     profile_cwd.mkdir()
     profile_home.mkdir(parents=True)
+    # session.resume intentionally follows the stored workspace with os.chdir().
+    # Profile initialization may also prepend its selected repository root to
+    # sys.path. Record both through pytest so teardown restores process-global
+    # import/cwd state for later tests.
+    monkeypatch.chdir(launch_cwd)
+    monkeypatch.setattr(sys, "path", list(sys.path))
     captured = {}
 
     class ProfileDB:
