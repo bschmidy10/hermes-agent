@@ -396,10 +396,10 @@ def _cwd_marker(session_id: str) -> str:
 # should only carry the user's own shell state (PATH, functions, exports they
 # set), not Hermes' per-turn session identity.
 #
-# Kept in sync with gateway.session_context._VAR_MAP: every bridged name starts
-# with one of these prefixes.
+# Kept in sync with gateway.session_context._VAR_MAP: the HERMES names share
+# these prefixes, while TERMINAL_CWD is the one legacy unprefixed bridge.
 _SNAPSHOT_EXCLUDED_ENV_REGEX = (
-    "^declare -x (HERMES_SESSION_|HERMES_UI_SESSION_ID|HERMES_CRON_AUTO_DELIVER_)"
+    "^declare -x (HERMES_SESSION_|HERMES_UI_SESSION_ID|HERMES_CRON_AUTO_DELIVER_|TERMINAL_CWD)"
 )
 
 
@@ -408,8 +408,9 @@ def _export_dump_excluding_session_vars(tmp_path: str) -> str:
     per-session bridged vars (see ``_SNAPSHOT_EXCLUDED_ENV_REGEX``).
 
     ``export -p`` emits one ``declare -x NAME="value"`` line per exported var.
-    We drop the HERMES_SESSION_* / UI / CRON_AUTO_DELIVER lines so they never
-    persist across sessions in the shared snapshot. ``grep -vE`` returns exit 1
+    We drop the HERMES_SESSION_* / UI / CRON_AUTO_DELIVER lines and
+    TERMINAL_CWD so they never persist across sessions in the shared snapshot.
+    ``grep -vE`` returns exit 1
     when it filters everything, so ``|| true`` keeps the pipeline's success
     contract intact for the callers that chain on it.
 
