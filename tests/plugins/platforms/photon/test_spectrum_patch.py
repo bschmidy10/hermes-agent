@@ -160,6 +160,44 @@ def _write_fixture(tmp_path: Path) -> Path:
     return chunk
 
 
+def test_spectrum_patch_accepts_upstream_ordered_mixed_parts(tmp_path: Path) -> None:
+    """Spectrum 8.2.2 preserves text and attachments itself, so the legacy
+    compatibility patch must recognize that implementation and leave it byte-identical.
+    """
+    dist = tmp_path / "node_modules" / "@spectrum-ts" / "imessage" / "dist"
+    dist.mkdir(parents=True)
+    chunk = dist / "index.js"
+    source = _tabify(
+        """
+const buildUnwrappedContentMessage = async (client, base, message, messageGuidStr) => {
+  const attachments = messageAttachments(message);
+  const parts = toOrderedParts(message.content.text, attachments);
+  const items = [];
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+    items.push(await buildOrderedPartMessage(client, base, part, formatChildId(i, messageGuidStr), i, messageGuidStr));
+  }
+  return { ...base, id: messageGuidStr, content: asProviderGroup(items) };
+};
+const rebuildFromAppleMessage = async (client, message) => buildUnwrappedContentMessage(client, {}, message, message.guid);
+const toInboundMessages = async (client, cache, event) => [await buildUnwrappedContentMessage(client, {}, event.message, event.message.guid)];
+"""
+    )
+    chunk.write_text(source, encoding="utf-8")
+
+    result = subprocess.run(
+        ["node", str(_PATCHER), str(tmp_path)],
+        cwd=Path.cwd(),
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "upstream preserves mixed attachments" in result.stderr
+    assert chunk.read_text(encoding="utf-8") == source
+
+
 def test_spectrum_patch_rewrites_the_imessage_mapper(tmp_path: Path) -> None:
     """The dependency patch must apply to the 8.x `@spectrum-ts/imessage` chunk
     and rewrite both inbound mappers to thread text through attachment bubbles."""
