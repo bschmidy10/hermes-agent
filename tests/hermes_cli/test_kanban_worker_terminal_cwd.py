@@ -77,12 +77,13 @@ def test_terminal_cwd_pinned_to_workspace(monkeypatch, tmp_path):
     assert captured["env"]["HERMES_KANBAN_WORKSPACE"] == str(workspace)
 
 
-def test_terminal_cwd_not_pinned_for_nonexistent_workspace(monkeypatch, tmp_path):
-    """A non-directory workspace must NOT clobber the inherited TERMINAL_CWD.
+def test_terminal_cwd_scrubbed_for_nonexistent_workspace(monkeypatch, tmp_path):
+    """A non-directory workspace must not inherit an unrelated TERMINAL_CWD.
 
     file_tools rejects relative / sentinel TERMINAL_CWD values, so writing a
-    meaningless (nonexistent) path would be worse than leaving the inherited
-    one. The guard requires an existing absolute dir.
+    meaningless (nonexistent) path would be unsafe. The worker environment
+    scrubber also removes the dispatcher's cwd rather than leaking that anchor
+    into an untrusted or invalid workspace.
     """
     root = tmp_path / ".hermes"
     (root / "profiles" / "w").mkdir(parents=True)
@@ -97,5 +98,4 @@ def test_terminal_cwd_not_pinned_for_nonexistent_workspace(monkeypatch, tmp_path
 
     captured = _capture_spawn_env(kb, monkeypatch, str(missing))
 
-    # Inherited value is preserved (not overwritten with a bogus path).
-    assert captured["env"]["TERMINAL_CWD"] == "/pre/existing/anchor"
+    assert "TERMINAL_CWD" not in captured["env"]
